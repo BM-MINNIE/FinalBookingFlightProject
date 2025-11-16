@@ -233,66 +233,15 @@ switch ($action) {
         break;
 
     // ========== BOOKINGS ==========
-    case 'addBooking':
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        // ✅ Handle seat_id safely - can be NULL if not provided
-        $seat_id = isset($data['seat_id']) ? $data['seat_id'] : NULL;
+    // Add this case to your api.php file (replace the existing addBooking case)
 
-        // Also handle if seat_id is the string "null" or empty
-        if ($seat_id === 'null' || $seat_id === '' || $seat_id === null) {
-            $seat_id = NULL;
-        }
-        
-        // Log for debugging
-        error_log("addBooking - user_id: " . $data['user_id'] . ", flight_id: " . $data['flight_id'] . ", seat_id: " . ($seat_id ?? 'NULL'));
-        
-        $sql = "INSERT INTO bookings (user_id, flight_id, seat_id, booking_date) 
-                VALUES (?, ?, ?, NOW())";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iss", 
-            $data['user_id'],
-            $data['flight_id'],
-            $seat_id  // ✅ This will save the seat_id or NULL
-        );
-        
-        if ($stmt->execute()) {
-            $booking_id = $conn->insert_id;
-            
-            // If amount and payment_status provided, create payment
-            if (isset($data['amount']) && isset($data['payment_status'])) {
-                $paymentSql = "INSERT INTO payments (booking_id, amount, payment_date, payment_status) 
-                               VALUES (?, ?, NOW(), ?)";
-                $payStmt = $conn->prepare($paymentSql);
-                $payStmt->bind_param("ids", $booking_id, $data['amount'], $data['payment_status']);
-                $payStmt->execute();
-                $payStmt->close();
-            }
-            
-            echo json_encode([
-                'success' => true, 
-                'booking_id' => $booking_id,
-                'seat_id' => $seat_id,  // Return for debugging
-                'message' => 'Booking created successfully'
-            ]);
-        } else {
-            echo json_encode([
-                'success' => false, 
-                'message' => 'Database error: ' . $stmt->error
-            ]);
-        }
-        $stmt->close();
-        break;
     case 'addBooking':
         $data = json_decode(file_get_contents('php://input'), true);
         
-        // ✅ FIXED: Only check if key exists, not if it's empty
-        // This allows "2B" to pass through
-        $seat_id = isset($data['seat_id']) ? $data['seat_id'] : NULL;
-        
-        // ✅ Additional check: if seat_id is the string "null" or empty string, set to NULL
-        if ($seat_id === 'null' || $seat_id === '' || $seat_id === null) {
-            $seat_id = NULL;
+        // Handle seat_id safely - it can be NULL or a string like "2B"
+        $seat_id = null;
+        if (isset($data['seat_id']) && $data['seat_id'] !== '' && $data['seat_id'] !== 'null' && $data['seat_id'] !== null) {
+            $seat_id = $data['seat_id'];
         }
         
         // Log for debugging
@@ -301,6 +250,12 @@ switch ($action) {
         $sql = "INSERT INTO bookings (user_id, flight_id, seat_id, booking_date) 
                 VALUES (?, ?, ?, NOW())";
         $stmt = $conn->prepare($sql);
+        
+        if (!$stmt) {
+            echo json_encode(['success' => false, 'message' => 'Prepare failed: ' . $conn->error]);
+            break;
+        }
+        
         $stmt->bind_param("iss", 
             $data['user_id'],
             $data['flight_id'],
@@ -313,11 +268,13 @@ switch ($action) {
             // If amount and payment_status provided, create payment
             if (isset($data['amount']) && isset($data['payment_status'])) {
                 $paymentSql = "INSERT INTO payments (booking_id, amount, payment_date, payment_status) 
-                               VALUES (?, ?, NOW(), ?)";
+                            VALUES (?, ?, NOW(), ?)";
                 $payStmt = $conn->prepare($paymentSql);
-                $payStmt->bind_param("ids", $booking_id, $data['amount'], $data['payment_status']);
-                $payStmt->execute();
-                $payStmt->close();
+                if ($payStmt) {
+                    $payStmt->bind_param("ids", $booking_id, $data['amount'], $data['payment_status']);
+                    $payStmt->execute();
+                    $payStmt->close();
+                }
             }
             
             echo json_encode([
@@ -329,12 +286,11 @@ switch ($action) {
         } else {
             echo json_encode([
                 'success' => false, 
-                'message' => 'Database error: ' . $stmt->error
+                'message' => 'Execute failed: ' . $stmt->error
             ]);
         }
         $stmt->close();
         break;
-
 
 
     case 'getBookings':
@@ -431,6 +387,47 @@ switch ($action) {
         }
         $stmt->close();
         break;
+    
+    // Add this new case to your api.php file, after the existing booking cases
+
+case 'updateBookingStatus':
+    $data = json_decode(file_get_contents('php://input'), true);
+    
+    $booking_id = $data['booking_id'];
+    $status = $data['status']; // 'Pending', 'Paid', or 'Failed'
+    
+    // Validate status
+    $allowed_statuses = ['Pending', 'Paid', 'Failed'];
+    if (!in_array($status, $allowed_statuses)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid status']);
+        break;
+    }
+    
+    $sql = "UPDATE bookings SET status = ? WHERE booking_id = ?";
+    $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        echo json_encode(['success' => false, 'message' => 'Prepare failed: ' . $conn->error]);
+        break;
+    }
+    
+    $stmt->bind_param("si", $status, $booking_id);
+    
+    if ($stmt->execute()) {
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Booking status updated to ' . $status,
+            'booking_id' => $booking_id,
+            'status' => $status
+        ]);
+    } else {
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Execute failed: ' . $stmt->error
+        ]);
+    }
+    $stmt->close();
+    break;
 
     // ========== PASSENGERS ==========
    case 'addPassenger':
@@ -603,6 +600,221 @@ switch ($action) {
         }
         echo json_encode(['success' => true, 'data' => $payments]);
         break;
+
+    // ============================================
+// ADD THESE NEW CASES TO YOUR api.php FILE
+// ============================================
+
+// ========== GET OCCUPIED SEATS FOR A FLIGHT ==========
+case 'getOccupiedSeats':
+    $flight_id = $_GET['flight_id'] ?? '';
+    
+    if (empty($flight_id)) {
+        echo json_encode(['success' => false, 'message' => 'Flight ID required']);
+        break;
+    }
+    
+    // Get all paid bookings for this flight with their seats
+    $sql = "SELECT DISTINCT b.seat_id 
+            FROM bookings b
+            WHERE b.flight_id = ? 
+            AND b.status = 'Paid' 
+            AND b.seat_id IS NOT NULL";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $flight_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $occupiedSeats = [];
+    while ($row = $result->fetch_assoc()) {
+        $occupiedSeats[] = $row['seat_id'];
+    }
+    
+    $stmt->close();
+    
+    echo json_encode([
+        'success' => true, 
+        'occupiedSeats' => $occupiedSeats
+    ]);
+    break;
+
+// ========== RESERVE SEAT (Called when booking is created as Pending) ==========
+case 'reserveSeat':
+    $data = json_decode(file_get_contents('php://input'), true);
+    
+    $flight_id = $data['flight_id'];
+    $seat_id = $data['seat_id'];
+    $booking_id = $data['booking_id'];
+    
+    // Get airplane_id from flight
+    $sqlGetAirplane = "SELECT airplane_id FROM flights WHERE flight_id = ?";
+    $stmtGet = $conn->prepare($sqlGetAirplane);
+    $stmtGet->bind_param("s", $flight_id);
+    $stmtGet->execute();
+    $resultGet = $stmtGet->get_result();
+    $flight = $resultGet->fetch_assoc();
+    $stmtGet->close();
+    
+    if (!$flight) {
+        echo json_encode(['success' => false, 'message' => 'Flight not found']);
+        break;
+    }
+    
+    $airplane_id = $flight['airplane_id'];
+    
+    // Check if seat exists and is available
+    $sqlCheck = "SELECT available FROM seat WHERE seat_id = ? AND airplane_id = ?";
+    $stmtCheck = $conn->prepare($sqlCheck);
+    $stmtCheck->bind_param("ss", $seat_id, $airplane_id);
+    $stmtCheck->execute();
+    $resultCheck = $stmtCheck->get_result();
+    $seat = $resultCheck->fetch_assoc();
+    $stmtCheck->close();
+    
+    if (!$seat) {
+        echo json_encode(['success' => false, 'message' => 'Seat not found']);
+        break;
+    }
+    
+    if ($seat['available'] == 0) {
+        echo json_encode(['success' => false, 'message' => 'Seat already occupied']);
+        break;
+    }
+    
+    // Temporarily reserve seat (don't assign passenger yet - just mark as reserved)
+    // We'll assign passenger_id when payment is confirmed
+    
+    echo json_encode([
+        'success' => true, 
+        'message' => 'Seat temporarily reserved',
+        'seat_id' => $seat_id
+    ]);
+    break;
+
+// ========== CONFIRM SEAT (Called when payment is confirmed) ==========
+case 'confirmSeat':
+    $data = json_decode(file_get_contents('php://input'), true);
+    
+    $flight_id = $data['flight_id'];
+    $seat_id = $data['seat_id'];
+    $passenger_id = $data['passenger_id'];
+    
+    // Get airplane_id from flight
+    $sqlGetAirplane = "SELECT airplane_id FROM flights WHERE flight_id = ?";
+    $stmtGet = $conn->prepare($sqlGetAirplane);
+    $stmtGet->bind_param("s", $flight_id);
+    $stmtGet->execute();
+    $resultGet = $stmtGet->get_result();
+    $flight = $resultGet->fetch_assoc();
+    $stmtGet->close();
+    
+    if (!$flight) {
+        echo json_encode(['success' => false, 'message' => 'Flight not found']);
+        break;
+    }
+    
+    $airplane_id = $flight['airplane_id'];
+    
+    // Update seat table: mark as occupied and assign passenger
+    $sqlUpdateSeat = "UPDATE seat 
+                      SET available = 0, passenger_id = ? 
+                      WHERE seat_id = ? AND airplane_id = ?";
+    $stmtSeat = $conn->prepare($sqlUpdateSeat);
+    $stmtSeat->bind_param("iss", $passenger_id, $seat_id, $airplane_id);
+    $stmtSeat->execute();
+    $stmtSeat->close();
+    
+    // Decrease available_seats in flights table
+    $sqlUpdateFlight = "UPDATE flights 
+                        SET availables_seats = availables_seats - 1 
+                        WHERE flight_id = ? AND availables_seats > 0";
+    $stmtFlight = $conn->prepare($sqlUpdateFlight);
+    $stmtFlight->bind_param("s", $flight_id);
+    $stmtFlight->execute();
+    $stmtFlight->close();
+    
+    echo json_encode([
+        'success' => true, 
+        'message' => 'Seat confirmed and marked as occupied',
+        'seat_id' => $seat_id,
+        'passenger_id' => $passenger_id
+    ]);
+    break;
+
+// ========== RELEASE SEAT (Called when payment fails) ==========
+case 'releaseSeat':
+    $data = json_decode(file_get_contents('php://input'), true);
+    
+    $flight_id = $data['flight_id'];
+    $seat_id = $data['seat_id'];
+    
+    // Get airplane_id from flight
+    $sqlGetAirplane = "SELECT airplane_id FROM flights WHERE flight_id = ?";
+    $stmtGet = $conn->prepare($sqlGetAirplane);
+    $stmtGet->bind_param("s", $flight_id);
+    $stmtGet->execute();
+    $resultGet = $stmtGet->get_result();
+    $flight = $resultGet->fetch_assoc();
+    $stmtGet->close();
+    
+    if (!$flight) {
+        echo json_encode(['success' => false, 'message' => 'Flight not found']);
+        break;
+    }
+    
+    $airplane_id = $flight['airplane_id'];
+    
+    // Release seat: mark as available and remove passenger
+    $sqlUpdateSeat = "UPDATE seat 
+                      SET available = 1, passenger_id = NULL 
+                      WHERE seat_id = ? AND airplane_id = ?";
+    $stmtSeat = $conn->prepare($sqlUpdateSeat);
+    $stmtSeat->bind_param("ss", $seat_id, $airplane_id);
+    $stmtSeat->execute();
+    $stmtSeat->close();
+    
+    // Note: We don't increase available_seats here because the seat was never actually occupied
+    // It was only temporarily reserved
+    
+    echo json_encode([
+        'success' => true, 
+        'message' => 'Seat released and available again',
+        'seat_id' => $seat_id
+    ]);
+    break;
+
+// ========== GET FLIGHT CAPACITY INFO ==========
+case 'getFlightCapacity':
+    $flight_id = $_GET['flight_id'] ?? '';
+    
+    if (empty($flight_id)) {
+        echo json_encode(['success' => false, 'message' => 'Flight ID required']);
+        break;
+    }
+    
+    $sql = "SELECT f.availables_seats, a.capacity 
+            FROM flights f
+            LEFT JOIN airplane a ON f.airplane_id = a.airplane_id
+            WHERE f.flight_id = ?";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $flight_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = $result->fetch_assoc();
+    $stmt->close();
+    
+    if ($data) {
+        echo json_encode([
+            'success' => true,
+            'available_seats' => $data['availables_seats'],
+            'total_capacity' => $data['capacity']
+        ]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Flight not found']);
+    }
+    break;
 
     default:
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
