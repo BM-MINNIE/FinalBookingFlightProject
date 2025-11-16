@@ -1,21 +1,6 @@
 // ============================================
-// LOAD BOOKING DATA FROM LOCALSTORAGE
+// FLIGHT DATA REFERENCE
 // ============================================
-
-// Get booking reference and other data saved after payment
-const bookingReference = localStorage.getItem('bookingReference');
-const totalAmount = localStorage.getItem('bookingAmount');
-const paymentMethod = localStorage.getItem('paymentMethod');
-
-// Get complete booking data
-const passengersData = JSON.parse(localStorage.getItem('bookingData')) || [];
-const passengerCounts = JSON.parse(localStorage.getItem('passengerCounts')) || { adult: 1, child: 0, infant: 0 };
-const outboundFlightData = JSON.parse(localStorage.getItem('outboundFlight'));
-const returnFlightData = JSON.parse(localStorage.getItem('returnFlight'));
-const isRoundTrip = localStorage.getItem('isRoundTrip') === 'true';
-const totalPassengers = parseInt(localStorage.getItem('totalPassengers')) || 1;
-
-// Flight data (same as in other files)
 const flights = [
     { flight_id: 'TG640-1', depart_airport_name: 'Suvarnabhumi International Airport', depart_airport_id: 'BKK', arrival_airport_name: 'Kansai International Airport', arrival_airport_id: 'KIX', depart_time: '08:30', arrival_time: '13:45', country_from: 'Thailand', country_to: 'Japan', price: 12500 },
     { flight_id: 'TG640-2', depart_airport_name: 'Suvarnabhumi International Airport', depart_airport_id: 'BKK', arrival_airport_name: 'Kansai International Airport', arrival_airport_id: 'KIX', depart_time: '13:20', arrival_time: '18:30', country_from: 'Thailand', country_to: 'Japan', price: 11800 },
@@ -50,27 +35,6 @@ const flights = [
 ];
 
 // ============================================
-// INITIALIZE PAGE
-// ============================================
-
-//function init() {
-    // Check if there's any booking data
-    //if (!bookingReference || passengersData.length === 0) {
-        // No bookings found - show message
-        //showNoBookings();
-       // return;
-   // }
-    
-    // Load and display booking information
-//displayBookingInfo();
-//generateTickets();
-//}
-
-function getFlightById(flightId) {
-    return flights.find(f => f.flight_id === flightId);
-}
-
-// ============================================
 // MAIN INITIALIZATION
 // ============================================
 window.onload = function() {
@@ -95,7 +59,7 @@ window.onload = function() {
 
     // Check if we have data
     if (!paymentInfo || !bookingData || bookingData.length === 0) {
-        console.log('❌ Missing data');
+        console.log('❌ Missing data - showing no bookings message');
         showNoBookings();
         return;
     }
@@ -130,7 +94,7 @@ function generateAllTickets(passengers, outboundFlight, returnFlight, isRoundTri
     passengers.forEach((passenger, index) => {
         // Create outbound ticket
         if (outboundFlight && passenger.departure) {
-            const ticket = createTicket(passenger, outboundFlight, passenger.departure, index + 1, 'Outbound');
+            const ticket = createTicket(passenger, outboundFlight, passenger.departure, index + 1, 'Departure');
             container.appendChild(ticket);
         }
         
@@ -147,11 +111,13 @@ function generateAllTickets(passengers, outboundFlight, returnFlight, isRoundTri
 // ============================================
 function createTicket(passenger, flightData, serviceData, passengerNum, tripType) {
     // Get flight details
-    const flightDetails = getFlightById(flightData.flight_id || flightData.flightId);
+    const flightDetails = getFlightById(flightData.flightId);
     
     if (!flightDetails) {
-        console.error('Flight not found:', flightData.flight_id);
-        return document.createElement('div');
+        console.error('Flight not found:', flightData.flightId);
+        const errorDiv = document.createElement('div');
+        errorDiv.innerHTML = '<p>Flight details not found</p>';
+        return errorDiv;
     }
     
     console.log(`🎫 Creating ticket for Passenger ${passengerNum} (${tripType}):`, {
@@ -172,46 +138,38 @@ function createTicket(passenger, flightData, serviceData, passengerNum, tripType
     
     ticket.innerHTML = `
         <div class="ticket-header">
-            <span class="ticket-type">🎫 ${tripType} Flight Ticket</span>
-            <span class="ticket-flight-id">Flight: ${flightData.flight_id || flightData.flightId}</span>
+            <div class="ticket-type">✈️ ${tripType} Flight</div>
+            <div class="ticket-flight-id">${flightData.flightId}</div>
         </div>
-        
         <div class="ticket-body">
-            <!-- Passenger Info -->
             <div class="passenger-info">
-                <div class="info-title">👤 Passenger Information</div>
+                <div class="info-title">👤 Passenger ${passengerNum}</div>
                 <div class="info-row">
-                    <span class="info-row-label">Name:</span>
-                    <span class="info-row-value">${passenger.title} ${passenger.firstName} ${passenger.lastName}</span>
+                    <span class="info-label">Name:</span>
+                    <span class="info-value">${passenger.title} ${passenger.firstName} ${passenger.lastName}</span>
                 </div>
                 <div class="info-row">
-                    <span class="info-row-label">Passport Number:</span>
-                    <span class="info-row-value">${passenger.passportNumber || 'N/A'}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-row-label">Passenger #:</span>
-                    <span class="info-row-value">${passengerNum}</span>
+                    <span class="info-label">Passport:</span>
+                    <span class="info-value">${passenger.passportNumber || 'N/A'}</span>
                 </div>
             </div>
 
-            <!-- Flight Route -->
             <div class="flight-route">
                 <div class="route-airport">
                     <div class="route-time">${flightDetails.depart_time}</div>
                     <div class="route-code">${flightDetails.depart_airport_id}</div>
-                    <div class="route-date">${formatDate(flightData.date || new Date())}</div>
+                    <div class="route-date">${formatDate(flightData.date)}</div>
                 </div>
                 <div class="route-arrow">→</div>
                 <div class="route-airport">
                     <div class="route-time">${flightDetails.arrival_time}</div>
                     <div class="route-code">${flightDetails.arrival_airport_id}</div>
-                    <div class="route-date">${formatDate(flightData.date || new Date())}</div>
+                    <div class="route-date">${formatDate(flightData.date)}</div>
                 </div>
             </div>
 
-            <!-- Services Information - THIS IS THE KEY PART -->
             <div class="services-info">
-                <div class="info-title">📋 Booking Details</div>
+                <div class="info-title">📋 Services</div>
                 <div class="service-item">
                     <span class="service-label">💺 Seat:</span>
                     <span class="service-value">${serviceData.seat || 'Not assigned'}</span>
@@ -230,9 +188,8 @@ function createTicket(passenger, flightData, serviceData, passengerNum, tripType
                 </div>
             </div>
 
-            <!-- Ticket Price -->
             <div class="ticket-price">
-                <span class="price-label">Ticket Price:</span>
+                <span class="price-label">Total Price:</span>
                 <span class="price-value">฿${totalPrice.toLocaleString()}</span>
             </div>
         </div>
@@ -245,6 +202,10 @@ function createTicket(passenger, flightData, serviceData, passengerNum, tripType
 // HELPER FUNCTIONS
 // ============================================
 
+function getFlightById(flightId) {
+    return flights.find(f => f.flight_id === flightId);
+}
+
 function getMealTypeName(type) {
     const mealTypes = {
         'normal': 'Normal Meal',
@@ -256,9 +217,21 @@ function getMealTypeName(type) {
 }
 
 function formatDate(dateString) {
-    if (!dateString) return new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    if (!dateString) {
+        return new Date().toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+    }
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+    });
 }
 
 function showNoBookings() {
@@ -273,6 +246,14 @@ function showNoBookings() {
 // ============================================
 
 function goToHome() {
+    // Clear booking data when going home
+    localStorage.removeItem('bookingData');
+    localStorage.removeItem('outboundFlight');
+    localStorage.removeItem('returnFlight');
+    localStorage.removeItem('paymentInfo');
+    localStorage.removeItem('isRoundTrip');
+    localStorage.removeItem('totalPassengers');
+    
     window.location.href = 'search.html';
 }
 
