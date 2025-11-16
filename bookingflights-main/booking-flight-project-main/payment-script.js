@@ -38,11 +38,12 @@ const flights = [
 // GLOBAL VARIABLES
 // ============================================
 const passengersData = [];
-const outboundFlightData = JSON.parse(localStorage.getItem('outboundFlight'));
-const returnFlightData = JSON.parse(localStorage.getItem('returnFlight'));
-const isRoundTrip = localStorage.getItem('isRoundTrip') === 'true';
-const totalPassengers = parseInt(localStorage.getItem('totalPassengers')) || 1;
+let outboundFlightData = null;
+let returnFlightData = null;
+let isRoundTrip = false;
+let totalPassengers = 1;
 const currentUserId = localStorage.getItem('userId') || 1;
+let bookingIds = [];
 
 let selectedPaymentMethod = null;
 let totalAmount = 0;
@@ -56,24 +57,33 @@ window.onload = function() {
 };
 
 function init() {
+    // Load flight data
+    outboundFlightData = JSON.parse(localStorage.getItem('outboundFlight'));
+    returnFlightData = JSON.parse(localStorage.getItem('returnFlight'));
+    isRoundTrip = localStorage.getItem('isRoundTrip') === 'true';
+    totalPassengers = parseInt(localStorage.getItem('totalPassengers')) || 1;
+    
+    // Load booking IDs created in seat&service page
+    const savedBookingIds = localStorage.getItem('currentBookingIds');
+    if (savedBookingIds) {
+        bookingIds = JSON.parse(savedBookingIds);
+        console.log('📝 Loaded booking IDs:', bookingIds);
+    }
+
+    console.log('Flight data loaded:', {outboundFlightData, returnFlightData, isRoundTrip, totalPassengers});
+
+    if (!outboundFlightData) {
+        console.error('❌ No outbound flight data found!');
+        alert('No flight data found! Please start from the beginning.');
+        window.location.href = 'search.html';
+        return;
+    }
+
     const savedData = localStorage.getItem('bookingData');
     if (savedData) {
         const data = JSON.parse(savedData);
         passengersData.push(...data);
         console.log('✅ Loaded', passengersData.length, 'passengers');
-        console.log('✅ Loaded', passengersData.length, 'passengers');
-
-        // 🔍 ADD THIS DEBUG CODE:
-        console.log('═══════════════════════════════════');
-        console.log('🔍 DEBUG: Loaded passengersData');
-        console.log('Full data:', passengersData);
-        if (passengersData[0]) {
-            console.log('First passenger:', passengersData[0]);
-            console.log('Departure object:', passengersData[0].departure);
-            console.log('Departure seat:', passengersData[0].departure?.seat);
-            console.log('Seat type:', typeof passengersData[0].departure?.seat);
-        }
-        console.log('═══════════════════════════════════');
     } else {
         console.error('❌ No booking data found!');
         alert('No booking data found! Please start from the beginning.');
@@ -107,9 +117,6 @@ function generateTickets() {
     console.log('✅ Generated tickets. Total amount:', totalAmount);
 }
 
-// ============================================
-// CREATE TICKET
-// ============================================
 function createTicket(passenger, flightType, passengerNum) {
     const ticket = document.createElement('div');
     ticket.className = 'ticket';
@@ -120,6 +127,7 @@ function createTicket(passenger, flightType, passengerNum) {
     const flightDetails = flights.find(f => f.flight_id === flightData.flightId);
     if (!flightDetails) {
         console.error('Flight not found:', flightData.flightId);
+        ticket.innerHTML = '<p>Flight details not found</p>';
         return ticket;
     }
 
@@ -218,50 +226,6 @@ function updateSummary() {
 // ============================================
 // SELECT PAYMENT METHOD
 // ============================================
-
-// ============================================
-// ✅ ADDED: sendData FUNCTION (WAS MISSING!)
-// ============================================
-async function sendData(action, data) {
-    try {
-        console.log('═══════════════════════════════════');
-        console.log(`📡 sendData CALLED with action: ${action}`);
-        console.log('📡 Data to send:', JSON.stringify(data, null, 2));
-        console.log(`📡 URL: api.php?action=${action}`);
-        console.log('═══════════════════════════════════');
-        
-        const response = await fetch(`api.php?action=${action}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        });
-        
-        console.log(`📡 Response status: ${response.status}`);
-        console.log(`📡 Response ok: ${response.ok}`);
-        
-        const responseText = await response.text();
-        console.log('📡 Raw response:', responseText);
-        
-        const result = JSON.parse(responseText);
-        console.log('📡 Parsed response:', result);
-        
-        if (!result.success) {
-            throw new Error(result.message || 'API request failed');
-        }
-        
-        return result;
-    } catch (error) {
-        console.error('═══════════════════════════════════');
-        console.error(`❌ ERROR in sendData(${action}):`, error);
-        console.error('Error type:', error.constructor.name);
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        console.error('═══════════════════════════════════');
-        throw error;
-    }
-}
 function selectPayment(method) {
     selectedPaymentMethod = method;
     console.log('✅ Selected payment method:', method);
@@ -275,164 +239,23 @@ function selectPayment(method) {
 }
 
 // ============================================
-// CONFIRM PAYMENT - COMPLETE 3-TABLE SYSTEM
+// CANCEL BOOKING - UPDATE STATUS TO FAILED AND RELEASE SEATS
 // ============================================
-// ============================================
-// COMPLETE DEBUG VERSION - payment-script.js
-// Replace ENTIRE confirmPayment function (line 223-380)
-// ============================================
-
-async function confirmPayment() {
-    console.log('💳 Confirming payment...');
-    
-    const selectedPayment = document.querySelector('input[name="payment"]:checked');
-    if (!selectedPayment) {
-        alert("⚠️ Please select a payment method before confirming!");
+async function cancelBooking() {
+    if (!confirm('Are you sure you want to cancel? You will return to the seat selection page.')) {
         return;
     }
-
-    const paymentMethod = selectedPayment.value;
-    const bookingRef = "BK" + Date.now();
     
-    console.log('Payment method:', paymentMethod);
-    console.log('Total amount:', totalAmount);
-
-    const confirmBtn = document.getElementById('confirm-btn');
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Processing...';
-
+    const cancelBtn = event.target;
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Cancelling...';
+    
     try {
-        // ============================================
-        // 🔍 SUPER DEBUG - CHECK ALL DATA
-        // ============================================
-        console.log('═══════════════════════════════════');
-        console.log('🔍 COMPLETE DATA CHECK');
-        console.log('═══════════════════════════════════');
-        console.log('Current User ID:', currentUserId);
-        console.log('Outbound Flight:', outboundFlightData);
-        console.log('Return Flight:', returnFlightData);
-        console.log('Is Round Trip:', isRoundTrip);
-        console.log('Passengers Data:', passengersData);
-        console.log('Number of Passengers:', passengersData.length);
-        
-        // Check first passenger in detail
-        if (passengersData.length > 0) {
-            console.log('─────────────────────────────────');
-            console.log('First Passenger Details:');
-            console.log('Full Object:', passengersData[0]);
-            console.log('First Name:', passengersData[0].firstName);
-            console.log('Last Name:', passengersData[0].lastName);
-            console.log('Passport:', passengersData[0].passportNumber);
-            console.log('Departure Object:', passengersData[0].departure);
-            
-            if (passengersData[0].departure) {
-                console.log('Departure Seat:', passengersData[0].departure.seat);
-                console.log('Departure Luggage:', passengersData[0].departure.luggage);
-                console.log('Departure Meal:', passengersData[0].departure.meal);
-                console.log('Departure WiFi:', passengersData[0].departure.wifi);
-            } else {
-                console.error('❌ NO DEPARTURE DATA!');
-            }
-            
-            if (passengersData[0].return) {
-                console.log('Return Seat:', passengersData[0].return.seat);
-            }
-        } else {
-            console.error('❌ NO PASSENGERS DATA!');
-        }
-        console.log('═══════════════════════════════════');
-        
-        const bookingIds = [];
+        console.log('❌ Cancelling booking...');
         
         // ============================================
-        // STEP 1: CREATE BOOKING(S)
+        // STEP 1: CREATE PASSENGERS (even for cancelled bookings)
         // ============================================
-        console.log('📝 Step 1: Creating bookings...');
-        
-        // Get seat_id safely
-        let departureSeat = null;
-        if (passengersData[0] && passengersData[0].departure && passengersData[0].departure.seat) {
-            departureSeat = passengersData[0].departure.seat;
-            console.log('✅ Departure seat found:', departureSeat);
-        } else {
-            console.error('❌ No departure seat found!');
-            console.error('passengersData[0]:', passengersData[0]);
-        }
-        
-        // Departure booking
-        const departureBookingData = {
-            user_id: currentUserId,
-            flight_id: outboundFlightData.flightId,
-            seat_id: "HARDCODED-12A" 
-        };
-        
-        console.log('🚨 FINAL CHECK:');
-        console.log('Object:', departureBookingData);
-        console.log('Has seat_id?', 'seat_id' in departureBookingData);
-        console.log('seat_id value:', departureBookingData.seat_id);
-        console.log('JSON:', JSON.stringify(departureBookingData));
-
-
-        
-        const departureResult = await sendData('addBooking', departureBookingData);
-        
-        console.log('─────────────────────────────────');
-        console.log('📥 DEPARTURE BOOKING RESPONSE:');
-        console.log('Response:', JSON.stringify(departureResult, null, 2));
-        console.log('─────────────────────────────────');
-        
-        if (departureResult.success) {
-            bookingIds.push({ type: 'departure', id: departureResult.booking_id });
-            console.log('✅ Departure booking created:', departureResult.booking_id);
-        } else {
-            console.error('❌ Departure booking failed:', departureResult.message);
-            throw new Error('Failed to create departure booking: ' + departureResult.message);
-        }
-        
-        // Return booking (if round trip)
-        if (isRoundTrip && returnFlightData) {
-            let returnSeat = null;
-            if (passengersData[0] && passengersData[0].return && passengersData[0].return.seat) {
-                returnSeat = passengersData[0].return.seat;
-                console.log('✅ Return seat found:', returnSeat);
-            } else {
-                console.error('❌ No return seat found!');
-            }
-            
-            const returnBookingData = {
-                user_id: currentUserId,
-                flight_id: returnFlightData.flightId,
-                seat_id: returnSeat
-            };
-            
-            console.log('─────────────────────────────────');
-            console.log('📤 SENDING RETURN BOOKING:');
-            console.log('Data:', JSON.stringify(returnBookingData, null, 2));
-            console.log('─────────────────────────────────');
-            
-            const returnResult = await sendData('addBooking', returnBookingData);
-            
-            console.log('─────────────────────────────────');
-            console.log('📥 RETURN BOOKING RESPONSE:');
-            console.log('Response:', JSON.stringify(returnResult, null, 2));
-            console.log('─────────────────────────────────');
-            
-            if (returnResult.success) {
-                bookingIds.push({ type: 'return', id: returnResult.booking_id });
-                console.log('✅ Return booking created:', returnResult.booking_id);
-            } else {
-                console.error('❌ Return booking failed:', returnResult.message);
-                throw new Error('Failed to create return booking: ' + returnResult.message);
-            }
-        }
-        
-        console.log('✅ All bookings created:', bookingIds);
-        
-        // ============================================
-        // STEP 2: CREATE PASSENGERS
-        // ============================================
-        console.log('👥 Step 2: Creating passengers...');
-        
         for (let i = 0; i < passengersData.length; i++) {
             const passenger = passengersData[i];
             
@@ -450,17 +273,8 @@ async function confirmPayment() {
                 Wifi: passenger.departure.wifi?.selected ? 1 : 0
             };
             
-            console.log(`📤 Sending passenger ${i + 1}:`, departurePassengerData);
-            
-            const departurePassResult = await sendData('addPassenger', departurePassengerData);
-            
-            console.log(`📥 Passenger ${i + 1} response:`, departurePassResult);
-            
-            if (departurePassResult.success) {
-                console.log(`✅ Departure passenger ${i + 1} created`);
-            } else {
-                console.error(`❌ Failed to create departure passenger ${i + 1}:`, departurePassResult.message);
-            }
+            await sendData('addPassenger', departurePassengerData);
+            console.log(`✅ Departure passenger ${i + 1} created`);
             
             // Return passenger (if round trip)
             if (isRoundTrip && returnFlightData) {
@@ -477,25 +291,191 @@ async function confirmPayment() {
                     Wifi: passenger.return.wifi?.selected ? 1 : 0
                 };
                 
-                console.log(`📤 Sending return passenger ${i + 1}:`, returnPassengerData);
-                
-                const returnPassResult = await sendData('addPassenger', returnPassengerData);
-                
-                console.log(`📥 Return passenger ${i + 1} response:`, returnPassResult);
-                
-                if (returnPassResult.success) {
-                    console.log(`✅ Return passenger ${i + 1} created`);
-                } else {
-                    console.error(`❌ Failed to create return passenger ${i + 1}:`, returnPassResult.message);
-                }
+                await sendData('addPassenger', returnPassengerData);
+                console.log(`✅ Return passenger ${i + 1} created`);
             }
         }
         
         // ============================================
-        // STEP 3: CREATE PAYMENT FOR EACH BOOKING
+        // STEP 2: RELEASE ALL SEATS (Make them available again)
         // ============================================
-        console.log('💳 Step 3: Creating payments...');
+        console.log('🔓 Releasing seats...');
         
+        for (let i = 0; i < passengersData.length; i++) {
+            const passenger = passengersData[i];
+            
+            // Release departure seat
+            if (passenger.departure.seat) {
+                await sendData('releaseSeat', {
+                    flight_id: outboundFlightData.flightId,
+                    seat_id: passenger.departure.seat
+                });
+                console.log(`✅ Released departure seat: ${passenger.departure.seat}`);
+            }
+            
+            // Release return seat
+            if (isRoundTrip && returnFlightData && passenger.return.seat) {
+                await sendData('releaseSeat', {
+                    flight_id: returnFlightData.flightId,
+                    seat_id: passenger.return.seat
+                });
+                console.log(`✅ Released return seat: ${passenger.return.seat}`);
+            }
+        }
+        
+        // ============================================
+        // STEP 3: CREATE PAYMENT WITH STATUS "FAILED"
+        // ============================================
+        for (const booking of bookingIds) {
+            const paymentData = {
+                booking_id: booking.id,
+                amount: totalAmount,
+                payment_status: 'Failed'
+            };
+            
+            await sendData('addPayment', paymentData);
+            console.log(`✅ Failed payment recorded for booking ${booking.id}`);
+            
+            // Update booking status to "Failed"
+            await sendData('updateBookingStatus', {
+                booking_id: booking.id,
+                status: 'Failed'
+            });
+            console.log(`✅ Booking ${booking.id} status updated to Failed`);
+        }
+        
+        console.log('✅ Booking cancelled and seats released');
+        alert('❌ Booking has been cancelled. Seats are now available for other customers.');
+        
+        // Go back to seat selection
+        window.location.href = 'seat&service.html';
+        
+    } catch (error) {
+        console.error('❌ Failed to cancel booking:', error);
+        alert('Error cancelling booking: ' + error.message);
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Cancel';
+    }
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+function getMealCode(mealType) {
+    if (!mealType) return 0;
+    const codes = {
+        'normal': 1,
+        'vegetarian': 2,
+        'low-salt': 3,
+        'diabetic': 4
+    };
+    return codes[mealType] || 0;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+}
+
+async function sendData(action, data) {
+    try {
+        console.log(`📡 Sending ${action}:`, data);
+        
+        const response = await fetch(`api.php?action=${action}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const responseText = await response.text();
+        console.log('📡 Raw response:', responseText);
+        
+        const result = JSON.parse(responseText);
+        console.log('📡 Parsed response:', result);
+        
+        if (!result.success) {
+            throw new Error(result.message || 'API request failed');
+        }
+        
+        return result;
+    } catch (error) {
+        console.error(`❌ Error in sendData(${action}):`, error);
+        throw error;
+    }
+}
+
+// ============================================
+// CONFIRM PAYMENT - UPDATE STATUS TO PAID
+// ============================================
+async function confirmPayment() {
+    console.log('💳 Confirming payment...');
+    
+    const selectedPayment = document.querySelector('input[name="payment"]:checked');
+    if (!selectedPayment) {
+        alert("⚠️ Please select a payment method before confirming!");
+        return;
+    }
+
+    const paymentMethod = selectedPayment.value;
+    const bookingRef = "BK" + Date.now();
+    
+    const confirmBtn = document.getElementById('confirm-btn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Processing...';
+
+    try {
+        console.log('📝 Creating passengers and payments...');
+        
+        // ============================================
+        // STEP 1: CREATE PASSENGERS FOR EACH BOOKING
+        // ============================================
+        for (let i = 0; i < passengersData.length; i++) {
+            const passenger = passengersData[i];
+            
+            // Departure passenger
+            const departureBookingId = bookingIds.find(b => b.type === 'departure').id;
+            const departurePassengerData = {
+                booking_id: departureBookingId,
+                flight_id: outboundFlightData.flightId,
+                fname: passenger.firstName,
+                lname: passenger.lastName,
+                passport_no: passenger.passportNumber,
+                seat_no: passenger.departure.seat || 'Not assigned',
+                luggage_weight: parseInt(passenger.departure.luggage?.weight) || 20,
+                Meal: getMealCode(passenger.departure.meal?.type),
+                Wifi: passenger.departure.wifi?.selected ? 1 : 0
+            };
+            
+            await sendData('addPassenger', departurePassengerData);
+            console.log(`✅ Departure passenger ${i + 1} created`);
+            
+            // Return passenger (if round trip)
+            if (isRoundTrip && returnFlightData) {
+                const returnBookingId = bookingIds.find(b => b.type === 'return').id;
+                const returnPassengerData = {
+                    booking_id: returnBookingId,
+                    flight_id: returnFlightData.flightId,
+                    fname: passenger.firstName,
+                    lname: passenger.lastName,
+                    passport_no: passenger.passportNumber,
+                    seat_no: passenger.return.seat || 'Not assigned',
+                    luggage_weight: parseInt(passenger.return.luggage?.weight) || 20,
+                    Meal: getMealCode(passenger.return.meal?.type),
+                    Wifi: passenger.return.wifi?.selected ? 1 : 0
+                };
+                
+                await sendData('addPassenger', returnPassengerData);
+                console.log(`✅ Return passenger ${i + 1} created`);
+            }
+        }
+        
+        // ============================================
+        // STEP 2: CREATE PAYMENTS AND UPDATE STATUS TO "PAID"
+        // ============================================
         for (const booking of bookingIds) {
             const paymentData = {
                 booking_id: booking.id,
@@ -503,57 +483,41 @@ async function confirmPayment() {
                 payment_status: 'Paid'
             };
             
-            console.log(`📤 Creating payment for booking ${booking.id}:`, paymentData);
+            await sendData('addPayment', paymentData);
+            console.log(`✅ Payment created for booking ${booking.id}`);
             
-            const paymentResult = await sendData('addPayment', paymentData);
-            
-            console.log(`📥 Payment response:`, paymentResult);
-            
-            if (paymentResult.success) {
-                console.log(`✅ Payment created for booking ${booking.id}`);
-            } else {
-                console.error(`❌ Failed to create payment for booking ${booking.id}:`, paymentResult.message);
-            }
+            // Update booking status to "Paid"
+            await sendData('updateBookingStatus', {
+                booking_id: booking.id,
+                status: 'Paid'
+            });
+            console.log(`✅ Booking ${booking.id} status updated to Paid`);
         }
         
-        // ============================================
-        // SUCCESS!
-        // ============================================
         console.log('🎉 All operations completed!');
+        
+        // Save payment info for bookings page
+        const paymentInfo = {
+            bookingRef: bookingRef,
+            totalPassengers: totalPassengers,
+            totalFlights: isRoundTrip ? totalPassengers * 2 : totalPassengers,
+            totalAmount: `฿${totalAmount.toLocaleString()}`,
+            paymentMethod: paymentMethod,
+            bookingDate: new Date().toISOString()
+        };
+        
+        localStorage.setItem('paymentInfo', JSON.stringify(paymentInfo));
         
         alert(`✅ Booking Confirmed!\n\nBooking Reference: ${bookingRef}\n\nThank you for your booking!`);
         
-        // Clear data
-        localStorage.removeItem('bookingData');
-        localStorage.removeItem('outboundFlight');
-        localStorage.removeItem('returnFlight');
-        localStorage.removeItem('totalBookingPrice');
-        
-        // Redirect
+        // Redirect to bookings page
         window.location.href = 'bookings.html';
         
     } catch (error) {
-        console.error('═══════════════════════════════════');
-        console.error('❌ BOOKING FAILED!');
-        console.error('Error:', error);
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        console.error('═══════════════════════════════════');
-        
+        console.error('❌ BOOKING FAILED!', error);
         alert('❌ Booking failed: ' + error.message + '\n\nPlease check console for details.');
         
         confirmBtn.disabled = false;
         confirmBtn.textContent = 'Confirm Payment';
     }
 }
-
-// ============================================
-// INSTRUCTIONS:
-// 1. Replace the ENTIRE confirmPayment function with this
-// 2. Save file
-// 3. Clear browser cache
-// 4. Try booking again
-// 5. Open Console (F12)
-// 6. Take screenshot of ENTIRE console output
-// 7. Send me the screenshot!
-// ============================================
